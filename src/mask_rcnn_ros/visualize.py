@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.lines as lines
 from matplotlib.patches import Polygon
+import cv2
 import IPython.display
 
 import utils
@@ -148,6 +149,61 @@ def display_instances(image, boxes, masks, class_ids, class_names,
             ax.add_patch(p)
     ax.imshow(masked_image.astype(np.uint8))
     #plt.show()
+
+
+def display_instances_cv(image, boxes, masks, class_ids, class_names,
+                         scores=None, class_colors=None, alpha=0.7):
+    """
+    boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
+    masks: [height, width, num_instances]
+    class_ids: [num_instances]
+    class_names: list of class names of the dataset
+    scores: (optional) confidence scores for each box
+    class_colors: a list mapping class ids to their colors
+    alpha: the amount of transparency of the mask overlay
+    """
+    # Number of instances
+    n = boxes.shape[0]
+    if n:
+        assert boxes.shape[0] == masks.shape[-1] == class_ids.shape[0]
+
+    # Generate random colors
+    if class_colors is None:
+        colors = random_colors(n)
+
+    for i in range(n):
+        class_id = class_ids[i]
+        if class_colors is None:
+            color = colors[i]
+        else:
+            color = class_colors[class_id]
+
+        # Transform class colors to BGR and rescale [0-255] for OpenCv
+        bgr_color = tuple(c*255 for c in color[::-1])
+
+        # Draw bounding boxes
+        if not np.any(boxes[i]):
+            # Skip this instance. Has no bbox. Likely lost in image cropping.
+            continue
+        y1, x1, y2, x2 = boxes[i]
+        cv2.rectangle(image, (x1, y1), (x2, y2), color=bgr_color, thickness=2)
+
+        # Draw transparent mask
+        overlay = image.copy()
+        mask = masks[:, :, i]
+        __, thresh = cv2.threshold(mask, 0.5, 1, cv2.THRESH_BINARY)
+        _, contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(image, contours, -1, color=bgr_color, thickness=cv2.FILLED)
+        cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
+
+        # Draw text label
+        score = scores[i] if scores is not None else None
+        label = class_names[class_id]
+        caption = "{} {:.3f}".format(label, score) if score else label
+        cv2.putText(image, caption, (x1, y1 + 12), fontFace=cv2.FONT_HERSHEY_COMPLEX, fontScale=0.5,
+                    color=(255, 255, 255))
+
+    return image
 
 
 def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10):

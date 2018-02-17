@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 import os
 import threading
-from Queue import Queue
 import numpy as np
 
 import cv2
@@ -9,7 +8,6 @@ from cv_bridge import CvBridge
 import rospy
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import RegionOfInterest
-from std_msgs.msg import UInt8MultiArray
 
 from mask_rcnn_ros import coco
 from mask_rcnn_ros import utils
@@ -48,6 +46,7 @@ class InferenceConfig(coco.CocoConfig):
     GPU_COUNT = 1
     IMAGES_PER_GPU = 1
 
+
 class MaskRCNNNode(object):
     def __init__(self):
         self._cv_bridge = CvBridge()
@@ -80,8 +79,8 @@ class MaskRCNNNode(object):
     def run(self):
         self._result_pub = rospy.Publisher('~result', Result, queue_size=1)
         vis_pub = rospy.Publisher('~visualization', Image, queue_size=1)
-        sub = rospy.Subscriber('~input', Image,
-                               self._image_callback, queue_size=1)
+        rospy.Subscriber('~input', Image,
+                         self._image_callback, queue_size=1)
 
         rate = rospy.Rate(self._publish_rate)
         while not rospy.is_shutdown():
@@ -104,9 +103,7 @@ class MaskRCNNNode(object):
 
                 # Visualize results
                 if self._visualization:
-                    vis_image = self._visualize(result, np_image)
-                    cv_result = np.zeros(shape=vis_image.shape, dtype=np.uint8)
-                    cv2.convertScaleAbs(vis_image, cv_result)
+                    cv_result = self._visualize_cv(result, np_image)
                     image_msg = self._cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
                     vis_pub.publish(image_msg)
 
@@ -162,17 +159,28 @@ class MaskRCNNNode(object):
         result = result.reshape((int(h), int(w), 3))
         return result
 
+    def _visualize_cv(self, result, image):
+
+        image = visualize.display_instances_cv(image, result['rois'], result['masks'],
+                                               result['class_ids'], CLASS_NAMES,
+                                               result['scores'],
+                                               class_colors=self._class_colors)
+
+        return image
+
     def _image_callback(self, msg):
         rospy.logdebug("Get an image")
         if self._msg_lock.acquire(False):
             self._last_msg = msg
             self._msg_lock.release()
 
+
 def main():
     rospy.init_node('mask_rcnn')
 
     node = MaskRCNNNode()
     node.run()
+
 
 if __name__ == '__main__':
     main()
